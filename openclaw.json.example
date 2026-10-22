@@ -1,0 +1,65 @@
+{
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "REPLACE_ME/model-id"
+      }
+    },
+    "list": [
+      {
+        "id": "xianyu-kefu",
+        "name": "闲鱼客服"
+      },
+      {
+        "id": "main",
+        "name": "主助手"
+      }
+    ]
+  },
+  "bindings": [
+    {
+      "agentId": "xianyu-kefu",
+      "match": { "channel": "xianyu" }
+    },
+    {
+      "agentId": "main",
+      "match": { "channel": "feishu" }
+    }
+  ],
+  "channels": {
+    "xianyu": {
+      "enabled": true,
+      "apiUrl": "http://xianyu-app:8080",
+      "accounts": {
+        "REPLACE_AFTER_QR_COOKIE_ID": {
+          "enabled": true,
+          "apiUrl": "http://xianyu-app:8080"
+        }
+      }
+    },
+    "feishu": {
+      "enabled": true,
+      "accounts": {
+        "default": {
+          "appId": "cli_xxx",
+          "appSecret": "set-via-env-or-here-on-server-volume-only"
+        }
+      }
+    }
+  },
+  "gateway": {
+    "port": 18789,
+    "bind": "loopback",
+    "auth": { "mode": "token", "token": "set-a-long-random-token" }
+  },
+  "plugins": {
+    "allow": ["xianyu", "feishu"],
+    "load": {
+      "paths": ["/app/openclaw-plugin"]
+    },
+    "entries": {
+      "xianyu": { "enabled": true },
+      "feishu": { "enabled": true }
+    }
+  }
+}
