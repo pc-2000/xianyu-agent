@@ -294,5 +294,5 @@ try {
 ## 📚 相关文档
 
 - [QA 报告](./QA_REPORT_SSE_OPTIMIZATION.md) - 问题详细分析
-- [测试指南](./TESTING_GUIDE.md) - 测试场景和方法
+- [测试指南](../docs/TESTING_GUIDE.md) - 测试场景和方法
 - [配置文档](./README.md) - 配置选项说明

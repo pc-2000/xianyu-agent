@@ -12,6 +12,10 @@
 """
 
 import json
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SPIDER = ROOT / "product_spider.py"
 
 
 def test_c1_anti_detection_config():
@@ -19,7 +23,7 @@ def test_c1_anti_detection_config():
     print("\n【C1】验证反检测增强配置...")
     
     # 检查代码中是否包含新增的参数
-    with open("product_spider.py", "r", encoding="utf-8") as f:
+    with open(SPIDER, "r", encoding="utf-8") as f:
         content = f.read()
         
     required_args = [
@@ -43,7 +47,7 @@ def test_c2_retry_mechanism():
     """验证 C2: 超时和重试机制"""
     print("\n【C2】验证超时和重试机制...")
     
-    with open("product_spider.py", "r", encoding="utf-8") as f:
+    with open(SPIDER, "r", encoding="utf-8") as f:
         content = f.read()
     
     # 检查是否导入 tenacity
@@ -81,7 +85,7 @@ def test_c3_proxy_support():
     """验证 C3: 代理 IP 支持"""
     print("\n【C3】验证代理 IP 支持...")
     
-    with open("product_spider.py", "r", encoding="utf-8") as f:
+    with open(SPIDER, "r", encoding="utf-8") as f:
         content = f.read()
     
     # 检查 __init__ 是否有 proxy 参数
@@ -116,7 +120,7 @@ def test_m1_random_delay():
     """验证 M1: 请求间隔控制"""
     print("\n【M1】验证请求间隔控制...")
     
-    with open("product_spider.py", "r", encoding="utf-8") as f:
+    with open(SPIDER, "r", encoding="utf-8") as f:
         content = f.read()
     
     # 检查是否导入 random
@@ -139,7 +143,7 @@ def test_m2_error_handling():
     """验证 M2: 细化错误处理"""
     print("\n【M2】验证细化错误处理...")
     
-    with open("product_spider.py", "r", encoding="utf-8") as f:
+    with open(SPIDER, "r", encoding="utf-8") as f:
         content = f.read()
     
     # 检查是否导入 Playwright 异常
@@ -167,7 +171,7 @@ def test_m3_data_validation():
     """验证 M3: 数据验证"""
     print("\n【M3】验证数据验证...")
     
-    with open("product_spider.py", "r", encoding="utf-8") as f:
+    with open(SPIDER, "r", encoding="utf-8") as f:
         content = f.read()
     
     # 检查是否有 _validate_product_data 方法

@@ -7,7 +7,7 @@ import sys
 from contextlib import closing
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from order_status_query_playwright import OrderStatusQueryPlaywright
+from utils.order_status_query_playwright import OrderStatusQueryPlaywright
 from utils.xianyu_utils import trans_cookies
 
 

@@ -172,7 +172,7 @@ images = [
 
 ## 📚 相关文档
 
-- [商品发布功能文档](../PRODUCT_PUBLISH_README.md)
-- [快速测试指南](../PRODUCT_PUBLISH_README.md#快速测试)
-- [API 测试指南](../PRODUCT_PUBLISH_README.md#api-测试)
-- [性能测试指南](../PRODUCT_PUBLISH_README.md#性能测试)
+- [商品发布功能文档](../docs/PRODUCT_PUBLISH_README.md)
+- [快速测试指南](../docs/PRODUCT_PUBLISH_README.md#快速测试)
+- [API 测试指南](../docs/PRODUCT_PUBLISH_README.md#api-测试)
+- [性能测试指南](../docs/PRODUCT_PUBLISH_README.md#性能测试)

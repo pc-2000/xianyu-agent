@@ -180,7 +180,7 @@ npm run dev
 
 ## 🔗 相关文档
 
-- 后端 API 文档: `PRODUCT_PUBLISH_README.md`
+- 后端 API 文档: `docs/PRODUCT_PUBLISH_README.md`
 - Python 实现: `product_publisher.py`
 - 前端主入口: `App.tsx`
 - API 服务: `services/productService.ts`

@@ -244,18 +244,19 @@ Agent：好的，请提供商品信息...
 
 ```
 xianyu-agent/
-├── openclaw-plugin/           # OpenClaw 频道插件 (TypeScript)
-│   ├── index.ts               # 插件入口，注册 channel + service + tools
-│   └── src/
-│       ├── channel.ts             # 频道定义
-│       ├── bridge-client.ts       # Bridge API 客户端
-│       └── ...
+├── Start.py                   # Python 启动入口
+├── reply_server.py            # FastAPI Web 服务
+├── XianyuAutoAsync.py         # 闲鱼 WebSocket 核心
 ├── bridge_api.py              # Bridge API（Python 端 HTTP/SSE）
 ├── product_publisher.py       # 商品发布器（Playwright）
-├── product_publisher_config.yml # 发布器配置
-├── Start.py                   # Python 启动入口
-├── XianyuAutoAsync.py         # 闲鱼 WebSocket 核心
-└── reply_server.py            # FastAPI Web 服务
+├── product_publisher_config.yml
+├── docs/                      # 设计文档、QA 报告、使用说明
+├── tests/                     # 单元测试与手工测试脚本
+├── scripts/                   # 运维/排查脚本
+├── utils/                     # 公共工具
+├── static/                    # 静态页面（含验证码控制页）
+├── legacy/                    # 不再直接引用的历史加密实现
+└── openclaw-plugin/           # OpenClaw 频道插件 (TypeScript)
 ```
 
 ## ❓ 常见问题
