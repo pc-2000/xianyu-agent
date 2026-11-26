@@ -1434,6 +1434,18 @@ class XianyuLive:
             # 重置“刷新流程内已重启”标记，避免多次重启
             self.restarted_in_browser_refresh = False
 
+            # 连着就不要换票：定时器/其它任务误调用时直接返回现有 token。
+            if (
+                captcha_retry_count == 0
+                and self.connection_state == ConnectionState.CONNECTED
+                and self.current_token
+                and self.ws
+                and not getattr(self.ws, "closed", True)
+            ):
+                logger.info(f"【{self.cookie_id}】WebSocket仍在线，跳过换票，沿用现有token")
+                self.last_token_refresh_status = "skipped_ws_alive"
+                return self.current_token
+
             # 检查滑块验证重试次数，防止无限递归
             if captcha_retry_count >= self.max_captcha_verification_count:
                 logger.error(f"【{self.cookie_id}】滑块验证重试次数已达上限 ({self.max_captcha_verification_count})，停止重试")
@@ -1596,23 +1608,6 @@ class XianyuLive:
                     logger.info(f"【{self.cookie_id}】  响应内容: {json.dumps(res_json, ensure_ascii=False, indent=2)}")
                     logger.info(f"【{self.cookie_id}】================================")
 
-                    # 检查并更新Cookie
-                    if 'set-cookie' in response.headers:
-                        new_cookies = {}
-                        for cookie in response.headers.getall('set-cookie', []):
-                            if '=' in cookie:
-                                name, value = cookie.split(';')[0].split('=', 1)
-                                new_cookies[name.strip()] = value.strip()
-
-                        # 更新cookies
-                        if new_cookies:
-                            self.cookies.update(new_cookies)
-                            # 生成新的cookie字符串
-                            self.cookies_str = '; '.join([f"{k}={v}" for k, v in self.cookies.items()])
-                            # 更新数据库中的Cookie
-                            await self.update_config_cookies()
-                            logger.warning("已更新Cookie到数据库")
-
                     if isinstance(res_json, dict):
                         ret_value = res_json.get('ret', [])
                         # 检查ret是否包含成功信息
@@ -1621,6 +1616,19 @@ class XianyuLive:
                                 new_token = res_json['data']['accessToken']
                                 self.current_token = new_token
                                 self.last_token_refresh_time = time.time()
+
+                                # 仅成功换票时才把 Set-Cookie 写回；风控页的 Cookie 不要覆盖登录态
+                                if 'set-cookie' in response.headers:
+                                    new_cookies = {}
+                                    for cookie in response.headers.getall('set-cookie', []):
+                                        if '=' in cookie:
+                                            name, value = cookie.split(';')[0].split('=', 1)
+                                            new_cookies[name.strip()] = value.strip()
+                                    if new_cookies:
+                                        self.cookies.update(new_cookies)
+                                        self.cookies_str = '; '.join([f"{k}={v}" for k, v in self.cookies.items()])
+                                        await self.update_config_cookies()
+                                        logger.info(f"【{self.cookie_id}】换票成功，已更新Cookie到数据库")
 
                                 # 【消息接收时间重置】Token刷新成功后重置消息接收标志，与 cookie_refresh_loop 保持一致
                                 self.last_message_received_time = 0
@@ -1865,11 +1873,25 @@ class XianyuLive:
                 logger.info(f"【{self.cookie_id}】XianyuSliderStealth导入成功，使用滑块验证")
 
                 # 创建独立的滑块验证实例（每个用户独立实例，避免并发冲突）
+                # 默认无头自动滑块；设 SLIDER_HEADLESS=false 可改回有界面手动拖。
+                env_headless = os.getenv("SLIDER_HEADLESS")
+                if env_headless is not None:
+                    slider_headless = env_headless.strip().lower() in ("1", "true", "yes")
+                else:
+                    slider_headless = True
+                logger.info(f"【{self.cookie_id}】滑块浏览器 headless={slider_headless}")
                 slider_stealth = XianyuSliderStealth(
-                    # user_id=f"{self.cookie_id}_{int(time.time() * 1000)}",  # 使用唯一ID避免冲突
-                    user_id=f"{self.cookie_id}",  # 使用唯一ID避免冲突
-                    enable_learning=True,  # 启用学习功能
-                    headless=True  # 使用无头模式
+                    user_id=f"{self.cookie_id}",
+                    enable_learning=True,
+                    headless=slider_headless,
+                    cookies_str=self.cookies_str,
+                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36',
+                    extra_headers={
+                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                        'sec-ch-ua': '"Not;A=Brand";v="99", "Google Chrome";v="139", "Chromium";v="139"',
+                        'sec-ch-ua-mobile': '?0',
+                        'sec-ch-ua-platform': '"Windows"',
+                    },
                 )
 
                 # 在线程池中执行滑块验证
@@ -5154,6 +5176,17 @@ class XianyuLive:
                         break
 
                     current_time = time.time()
+                    # 心跳还在就不要定时换票：换票会打风控，成功后还会把当前 WS 掐掉重连。
+                    ws_alive = (
+                        self.connection_state == ConnectionState.CONNECTED
+                        and self.current_token
+                        and self.ws
+                        and not getattr(self.ws, "closed", True)
+                    )
+                    if ws_alive:
+                        await self._interruptible_sleep(60)
+                        continue
+
                     if current_time - self.last_token_refresh_time >= self.token_refresh_interval:
                         logger.info("Token即将过期，准备刷新...")
                         new_token = await self.refresh_token()
@@ -5641,6 +5674,14 @@ class XianyuLive:
                         continue
 
                     current_time = time.time()
+                    if (
+                        self.connection_state == ConnectionState.CONNECTED
+                        and self.ws
+                        and not getattr(self.ws, "closed", True)
+                    ):
+                        await self._interruptible_sleep(60)
+                        continue
+
                     if current_time - self.last_cookie_refresh_time >= self.cookie_refresh_interval:
                         # 检查是否在消息接收后的冷却时间内
                         time_since_last_message = current_time - self.last_message_received_time

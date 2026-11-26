@@ -243,10 +243,21 @@ strategy_stats = RetryStrategyStats()
 
 class XianyuSliderStealth:
     
-    def __init__(self, user_id: str = "default", enable_learning: bool = True, headless: bool = True):
+    def __init__(
+        self,
+        user_id: str = "default",
+        enable_learning: bool = True,
+        headless: bool = True,
+        cookies_str: str = None,
+        user_agent: str = None,
+        extra_headers: dict = None,
+    ):
         self.user_id = user_id
         self.enable_learning = enable_learning
         self.headless = headless  # 是否使用无头模式（默认True，使用无头模式）
+        self.cookies_str = cookies_str or ""
+        self.fixed_user_agent = user_agent
+        self.extra_headers = extra_headers or {}
         self.browser = None
         self.page = None
         self.context = None
@@ -384,18 +395,22 @@ class XianyuSliderStealth:
             logger.info(f"【{self.pure_user_id}】创建浏览器上下文...")
             
             # 🔑 关键优化：添加更多真实浏览器特征
+            extra_headers = {
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'sec-ch-ua': '"Not;A=Brand";v="99", "Google Chrome";v="139", "Chromium";v="139"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Windows"',
+            }
+            extra_headers.update({k: v for k, v in self.extra_headers.items() if v})
             context_options = {
                 'user_agent': browser_features['user_agent'],
-                'locale': browser_features['locale'],
-                'timezone_id': browser_features['timezone_id'],
-                # 🔑 添加真实的权限设置
+                'locale': 'zh-CN',
+                'timezone_id': 'Asia/Shanghai',
                 'permissions': ['geolocation', 'notifications'],
-                # 🔑 添加真实的色彩方案
-                'color_scheme': random.choice(['light', 'dark', 'no-preference']),
-                # 🔑 添加HTTP凭据
+                'color_scheme': 'light',
                 'http_credentials': None,
-                # 🔑 忽略HTTPS错误（某些情况下更真实）
                 'ignore_https_errors': False,
+                'extra_http_headers': extra_headers,
             }
             
             # 根据模式配置viewport和no_viewport
@@ -418,6 +433,17 @@ class XianyuSliderStealth:
             if not self.context:
                 raise Exception("浏览器上下文创建失败")
             logger.info(f"【{self.pure_user_id}】浏览器上下文创建成功")
+
+            playwright_cookies = self._playwright_cookies()
+            if playwright_cookies:
+                try:
+                    self.context.add_cookies(playwright_cookies)
+                    logger.info(
+                        f"【{self.pure_user_id}】已注入换票 Cookie: {len(playwright_cookies)} 项，"
+                        f"UA={browser_features['user_agent'][:60]}..."
+                    )
+                except Exception as cookie_err:
+                    logger.warning(f"【{self.pure_user_id}】注入 Cookie 失败: {cookie_err}")
             
             # 创建新页面
             logger.info(f"【{self.pure_user_id}】创建新页面...")
@@ -714,18 +740,15 @@ class XianyuSliderStealth:
             ("zh-CN", "zh-CN,zh;q=0.8,en;q=0.6")
         ]
         
-        # 随机选择用户代理
+        # 有换票会话时用同一套 UA，避免滑块页变成 Mac/旧版 Chrome
         user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
         ]
         
         window_size = random.choice(window_sizes)
         lang, accept_lang = random.choice(languages)
-        user_agent = random.choice(user_agents)
+        user_agent = self.fixed_user_agent or user_agents[0]
         
         # 解析窗口大小
         width, height = map(int, window_size.split(','))
@@ -743,6 +766,28 @@ class XianyuSliderStealth:
             'has_touch': False,
             'timezone_id': 'Asia/Shanghai'
         }
+
+    def _playwright_cookies(self):
+        """把换票用的 Cookie 转成 Playwright 格式，写到 goofish 域。"""
+        if not self.cookies_str:
+            return []
+        cookies = []
+        for part in self.cookies_str.split(";"):
+            part = part.strip()
+            if "=" not in part:
+                continue
+            name, value = part.split("=", 1)
+            name = name.strip()
+            value = value.strip()
+            if not name:
+                continue
+            cookies.append({
+                "name": name,
+                "value": value,
+                "domain": ".goofish.com",
+                "path": "/",
+            })
+        return cookies
     
     def _get_stealth_script(self, browser_features):
         """获取增强反检测脚本"""
@@ -1179,57 +1224,85 @@ class XianyuSliderStealth:
         else:
             return t
     
+    def _pick_easing(self):
+        """每次随机一种速度曲线，避免轨迹形状固定。"""
+        mode = random.choice(["ease_out_quad", "ease_out_cubic", "ease_in_out", "ease_out_quart"])
+        if mode == "ease_out_quad":
+            return mode, (lambda t: 1 - (1 - t) ** 2)
+        if mode == "ease_out_cubic":
+            return mode, (lambda t: 1 - (1 - t) ** 3)
+        if mode == "ease_in_out":
+            return mode, (lambda t: 4 * t ** 3 if t < 0.5 else 1 - ((-2 * t + 2) ** 3) / 2)
+        return mode, (lambda t: 1 - (1 - t) ** 4)
+
     def _generate_physics_trajectory(self, distance: float):
-        """基于物理加速度模型生成轨迹 - 适中速度模式
-
-        优化策略：
-        1. 适中轨迹点（15-25步）：平衡速度和真实度
-        2. 持续加速：一气呵成，不减速
-        3. 确保超调100%以上：保证滑动到位
-        4. 无回退：单向滑动
-        5. 适中延迟：3-8ms（更接近人类操作）
-        """
+        """生成接近真人的滑动轨迹，参数每次都重新抽样。"""
         trajectory = []
-        # 确保超调100%
-        target_distance = distance * random.uniform(2.0, 2.1)  # 超调100-110%
+        easing_name, easing = self._pick_easing()
+        do_overshoot = random.random() < 0.72
+        overshoot = random.uniform(0.8, 8.5) if do_overshoot else random.uniform(0.0, 1.2)
+        undershoot = random.uniform(0.0, 2.2) if random.random() < 0.35 else 0.0
+        target_distance = distance + overshoot - undershoot
+        steps = random.randint(42, 96)
+        total_time = random.uniform(1.05, 2.45)
+        y_amp = random.uniform(0.4, 1.8)
+        y_wave = random.uniform(0.6, 1.8)
+        y_phase = random.uniform(0, 6.28)
+        start_slow = random.uniform(0.08, 0.18)
+        end_slow = random.uniform(0.78, 0.90)
+        hiccup_at = random.uniform(0.28, 0.62) if random.random() < 0.4 else None
 
-        # 适中步数（15-25步）
-        steps = random.randint(15, 25)
-
-        # 适中时间间隔（3-8ms）
-        base_delay = random.uniform(0.003, 0.008)
-
-        # 生成轨迹点 - 直线加速
         for i in range(steps):
-            progress = (i + 1) / steps
-
-            # 计算当前位置（使用平方加速曲线，越来越快）
-            x = target_distance * (progress ** 1.5)  # 加速曲线
-
-            # 小幅Y轴抖动
-            y = random.uniform(0, 2)
-
-            # 适中延迟
-            delay = base_delay * random.uniform(0.9, 1.1)
-
+            t = (i + 1) / steps
+            eased = min(1.0, max(0.0, easing(t)))
+            x = target_distance * eased + random.uniform(-0.35, 0.35)
+            y = math.sin(t * math.pi * y_wave + y_phase) * y_amp + random.gauss(0, 0.35)
+            delay = (total_time / steps) * random.uniform(0.55, 1.55)
+            if t < start_slow:
+                delay *= random.uniform(1.5, 2.8)
+            elif t > end_slow:
+                delay *= random.uniform(1.3, 2.6)
+            if hiccup_at and abs(t - hiccup_at) < 0.03:
+                delay += random.uniform(0.04, 0.12)
             trajectory.append((x, y, delay))
 
-        logger.info(f"【{self.pure_user_id}】适中速度模式：{len(trajectory)}步，超调100%+")
-        return trajectory
+        if do_overshoot and random.random() < 0.7:
+            back = random.uniform(0.8, 5.0)
+            trajectory.append((
+                target_distance - back,
+                random.uniform(-1.6, 1.6),
+                random.uniform(0.03, 0.11),
+            ))
+            trajectory.append((
+                distance + random.uniform(-1.4, 1.8),
+                random.uniform(-0.8, 0.8),
+                random.uniform(0.04, 0.14),
+            ))
+        elif random.random() < 0.25:
+            trajectory.append((
+                distance + random.uniform(-0.6, 1.0),
+                random.uniform(-0.5, 0.5),
+                random.uniform(0.03, 0.08),
+            ))
+
+        logger.info(
+            f"【{self.pure_user_id}】人类轨迹：{len(trajectory)}步，曲线={easing_name}，"
+            f"目标{distance:.1f}px，超调{overshoot:.1f}px，时长约{total_time:.2f}秒"
+        )
+        return trajectory, easing_name, overshoot, total_time
     
     def generate_human_trajectory(self, distance: float):
-        """生成人类化滑动轨迹 - 只使用极速物理模型"""
+        """生成人类化滑动轨迹"""
         try:
-            # 只使用物理加速度模型（移除贝塞尔模型以提高速度和稳定性）
-            logger.info(f"【{self.pure_user_id}】📐 使用极速物理模型生成轨迹")
-            trajectory = self._generate_physics_trajectory(distance)
+            distance = distance + random.uniform(-1.2, 1.6)
+            logger.info(f"【{self.pure_user_id}】📐 生成人类滑动轨迹")
+            trajectory, easing_name, overshoot, total_time = self._generate_physics_trajectory(distance)
             
-            logger.debug(f"【{self.pure_user_id}】极速模式：一次拖到位，无回退")
-            
-            # 保存轨迹数据
             self.current_trajectory_data = {
                 "distance": distance,
-                "model": "physics_fast",
+                "model": easing_name,
+                "overshoot": overshoot,
+                "planned_time": total_time,
                 "total_steps": len(trajectory),
                 "trajectory_points": trajectory.copy(),
                 "final_left_px": 0,
@@ -1244,58 +1317,59 @@ class XianyuSliderStealth:
             return []
     
     def simulate_slide(self, slider_button: ElementHandle, trajectory):
-        """模拟滑动 - 优化版本（基于高成功率策略）"""
+        """模拟滑动，接近路径和按住时长每次都随机。"""
         try:
             logger.info(f"【{self.pure_user_id}】开始优化滑动模拟...")
             
-            # 等待页面稳定
-            time.sleep(random.uniform(0.1, 0.3))
+            time.sleep(random.uniform(0.08, 0.42))
             
-            # 获取滑块按钮中心位置
             button_box = slider_button.bounding_box()
             if not button_box:
                 logger.error(f"【{self.pure_user_id}】无法获取滑块按钮位置")
                 return False
             
-            start_x = button_box["x"] + button_box["width"] / 2
-            start_y = button_box["y"] + button_box["height"] / 2
-            logger.debug(f"【{self.pure_user_id}】滑块位置: ({start_x}, {start_y})")
+            start_x = button_box["x"] + button_box["width"] * random.uniform(0.32, 0.68)
+            start_y = button_box["y"] + button_box["height"] * random.uniform(0.28, 0.72)
+            logger.info(f"【{self.pure_user_id}】滑块起点: ({start_x:.1f}, {start_y:.1f}) 尺寸={button_box['width']:.1f}x{button_box['height']:.1f}")
             
-            # 第一阶段：移动到滑块附近（模拟人类寻找滑块）
             try:
-                # 先移动到滑块附近（稍微偏左）
-                offset_x = random.uniform(-30, -10)
-                offset_y = random.uniform(-15, 15)
+                approach_from_left = random.random() < 0.7
+                offset_x = random.uniform(-42, -8) if approach_from_left else random.uniform(8, 28)
+                offset_y = random.uniform(-22, 22)
                 self.page.mouse.move(
                     start_x + offset_x,
                     start_y + offset_y,
-                    steps=random.randint(5, 10)
+                    steps=random.randint(4, 14)
                 )
-                time.sleep(random.uniform(0.15, 0.3))
-                
-                # 再精确移动到滑块中心
+                time.sleep(random.uniform(0.08, 0.38))
+                if random.random() < 0.45:
+                    self.page.mouse.move(
+                        start_x + random.uniform(-6, 6),
+                        start_y + random.uniform(-5, 5),
+                        steps=random.randint(2, 7)
+                    )
+                    time.sleep(random.uniform(0.04, 0.16))
                 self.page.mouse.move(
                     start_x,
                     start_y,
-                    steps=random.randint(3, 6)
+                    steps=random.randint(2, 8)
                 )
-                time.sleep(random.uniform(0.1, 0.25))
+                time.sleep(random.uniform(0.06, 0.32))
             except Exception as e:
                 logger.warning(f"【{self.pure_user_id}】移动到滑块失败: {e}，继续尝试")
             
-            # 第二阶段：悬停在滑块上
-            try:
-                slider_button.hover(timeout=2000)
-                time.sleep(random.uniform(0.1, 0.3))
-            except Exception as e:
-                logger.warning(f"【{self.pure_user_id}】悬停滑块失败: {e}")
+            if random.random() < 0.65:
+                try:
+                    slider_button.hover(timeout=2000)
+                    time.sleep(random.uniform(0.06, 0.36))
+                except Exception as e:
+                    logger.warning(f"【{self.pure_user_id}】悬停滑块失败: {e}")
             
-            # 第三阶段：按下鼠标
             try:
                 self.page.mouse.move(start_x, start_y)
-                time.sleep(random.uniform(0.05, 0.15))
+                time.sleep(random.uniform(0.03, 0.18))
                 self.page.mouse.down()
-                time.sleep(random.uniform(0.05, 0.15))
+                time.sleep(random.uniform(0.04, 0.22))
             except Exception as e:
                 logger.error(f"【{self.pure_user_id}】按下鼠标失败: {e}")
                 return False
@@ -1312,16 +1386,9 @@ class XianyuSliderStealth:
                     current_x = start_x + x
                     current_y = start_y + y
                     
-                    # 移动鼠标
-                    self.page.mouse.move(
-                        current_x,
-                        current_y,
-                        steps=random.randint(1, 3)
-                    )
-                    
-                    # 延迟（添加微小随机变化）
-                    actual_delay = delay * random.uniform(0.9, 1.1)
-                    time.sleep(actual_delay)
+                    self.page.mouse.move(current_x, current_y, steps=1)
+                    actual_delay = delay * random.uniform(0.82, 1.22)
+                    time.sleep(max(0.001, actual_delay))
                     
                     # 记录最终位置
                     if i == len(trajectory) - 1:
@@ -1346,29 +1413,10 @@ class XianyuSliderStealth:
                     logger.warning(f"【{self.pure_user_id}】🎨 刮刮乐模式：在目标位置停顿{pause_duration:.2f}秒观察...")
                     time.sleep(pause_duration)
                 
-                # 释放鼠标
-                time.sleep(random.uniform(0.02, 0.05))
+                time.sleep(random.uniform(0.03, 0.16))
                 self.page.mouse.up()
-                time.sleep(random.uniform(0.01, 0.03))
-                
-                # 触发click事件
-                try:
-                    slider_button.evaluate(f"""
-                        (slider) => {{
-                            const event = new MouseEvent('click', {{
-                                bubbles: true,
-                                cancelable: true,
-                                view: window,
-                                clientX: {current_x},
-                                clientY: {current_y},
-                                button: 0
-                            }});
-                            slider.dispatchEvent(event);
-                        }}
-                    """)
-                except Exception as e:
-                    logger.debug(f"【{self.pure_user_id}】触发click事件失败（可忽略）: {e}")
-                
+                time.sleep(random.uniform(0.12, 0.48))
+
                 elapsed_time = time.time() - start_time
                 logger.info(f"【{self.pure_user_id}】滑动完成: 耗时={elapsed_time:.2f}秒, 最终位置=({current_x:.1f}, {current_y:.1f})")
                 
@@ -1396,6 +1444,44 @@ class XianyuSliderStealth:
         # 极速模式：不进行页面行为模拟，直接开始滑动
         pass
     
+    def _query_nc_slider_combo(self):
+        """在当前所有 frame 里查找可见的 #nc_1_n1z + #nc_1_n1t。"""
+        try:
+            frames = list(self.page.frames)
+        except Exception:
+            return None, None, None, None
+        for idx, frame in enumerate(frames):
+            try:
+                button_element = frame.query_selector("#nc_1_n1z")
+                if not button_element or not button_element.is_visible():
+                    continue
+                track_element = frame.query_selector("#nc_1_n1t")
+                if not track_element or not track_element.is_visible():
+                    continue
+                container_element = (
+                    frame.query_selector("#baxia-dialog-content")
+                    or frame.query_selector(".nc-container")
+                    or button_element
+                )
+                return container_element, button_element, track_element, frame
+            except Exception as e:
+                logger.debug(f"【{self.pure_user_id}】Frame {idx} 查询滑块组合失败: {e}")
+                continue
+        return None, None, None, None
+
+    def _wait_for_nc_slider(self, timeout: float = 8.0):
+        """点重试后滑块按钮会重建，轮询等待，避免立刻按旧 frame 死等。"""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            container, button, track, frame = self._query_nc_slider_combo()
+            if container and button and track:
+                self._detected_slider_frame = frame
+                logger.info(f"【{self.pure_user_id}】✅ 滑块按钮已重新出现")
+                return container, button, track
+            time.sleep(0.2)
+        logger.warning(f"【{self.pure_user_id}】等待{timeout:.1f}秒后仍未出现 #nc_1_n1z")
+        return None, None, None
+
     def find_slider_elements(self, fast_mode=False):
         """查找滑块元素（支持在主页面和所有frame中查找）
         
@@ -1407,40 +1493,18 @@ class XianyuSliderStealth:
             if not fast_mode:
                 time.sleep(0.1)
             
-            # ===== 【优化】优先在 frames 中快速查找最常见的滑块组合 =====
-            # 根据实际日志，滑块按钮和轨道通常在同一个 frame 中
-            # 按钮: #nc_1_n1z, 轨道: #nc_1_n1t
-            logger.debug(f"【{self.pure_user_id}】优先在frames中快速查找常见滑块组合...")
-            try:
-                frames = self.page.frames
-                for idx, frame in enumerate(frames):
-                    try:
-                        # 优先查找最常见的按钮选择器
-                        button_element = frame.query_selector("#nc_1_n1z")
-                        if button_element and button_element.is_visible():
-                            # 在同一个 frame 中查找轨道
-                            track_element = frame.query_selector("#nc_1_n1t")
-                            if track_element and track_element.is_visible():
-                                # 找到容器（可以用按钮或其他选择器）
-                                container_element = frame.query_selector("#baxia-dialog-content")
-                                if not container_element:
-                                    container_element = frame.query_selector(".nc-container")
-                                if not container_element:
-                                    # 如果找不到容器，用按钮作为容器标识
-                                    container_element = button_element
-                                
-                                logger.info(f"【{self.pure_user_id}】✅ 在Frame {idx} 快速找到完整滑块组合！")
-                                logger.info(f"【{self.pure_user_id}】  - 按钮: #nc_1_n1z")
-                                logger.info(f"【{self.pure_user_id}】  - 轨道: #nc_1_n1t")
-                                
-                                # 保存frame引用
-                                self._detected_slider_frame = frame
-                                return container_element, button_element, track_element
-                    except Exception as e:
-                        logger.debug(f"【{self.pure_user_id}】Frame {idx} 快速查找失败: {e}")
-                        continue
-            except Exception as e:
-                logger.debug(f"【{self.pure_user_id}】frames 快速查找出错: {e}")
+            container, button, track, frame = self._query_nc_slider_combo()
+            if container and button and track:
+                self._detected_slider_frame = frame
+                logger.info(f"【{self.pure_user_id}】✅ 快速找到完整滑块组合！")
+                logger.info(f"【{self.pure_user_id}】  - 按钮: #nc_1_n1z")
+                logger.info(f"【{self.pure_user_id}】  - 轨道: #nc_1_n1t")
+                return container, button, track
+
+            if not fast_mode:
+                container, button, track = self._wait_for_nc_slider(timeout=6.0)
+                if container and button and track:
+                    return container, button, track
             
             # ===== 如果快速查找失败，使用原来的完整查找逻辑 =====
             logger.debug(f"【{self.pure_user_id}】快速查找未成功，使用完整查找逻辑...")
@@ -1562,9 +1626,7 @@ class XianyuSliderStealth:
             
             # 定义滑块按钮选择器（支持多种类型）
             button_selectors = [
-                # nc 系列滑块
                 "#nc_1_n1z",
-                ".nc_iconfont",
                 ".btn_slide",
                 # 刮刮乐类型滑块
                 "#scratch-captcha-btn",
@@ -1588,17 +1650,12 @@ class XianyuSliderStealth:
                         # 快速模式：直接使用 query_selector，不等待
                         element = search_frame.query_selector(selector)
                     else:
-                        # 正常模式：使用 wait_for_selector
                         if search_frame == self.page:
-                            element = self.page.wait_for_selector(selector, timeout=3000)
+                            element = self.page.wait_for_selector(selector, timeout=500)
                         else:
-                            # 在frame中先尝试wait_for_selector（如果支持）
                             try:
-                                # 尝试使用wait_for_selector（Playwright的frame支持）
-                                element = search_frame.wait_for_selector(selector, timeout=3000)
-                            except:
-                                # 如果不支持wait_for_selector，使用query_selector并等待
-                                time.sleep(0.5)  # 等待元素加载
+                                element = search_frame.wait_for_selector(selector, timeout=500)
+                            except Exception:
                                 element = search_frame.query_selector(selector)
                     
                     if element:
@@ -1643,11 +1700,9 @@ class XianyuSliderStealth:
                                     # 快速模式：直接使用 query_selector
                                     element = frame.query_selector(selector)
                                 else:
-                                    # 正常模式：先尝试wait_for_selector
                                     try:
-                                        element = frame.wait_for_selector(selector, timeout=2000)
-                                    except:
-                                        time.sleep(0.3)  # 等待元素加载
+                                        element = frame.wait_for_selector(selector, timeout=400)
+                                    except Exception:
                                         element = frame.query_selector(selector)
                                 
                                 if element:
@@ -1685,7 +1740,7 @@ class XianyuSliderStealth:
                             element = self.page.query_selector(selector)
                         else:
                             # 正常模式：使用 wait_for_selector
-                            element = self.page.wait_for_selector(selector, timeout=2000)
+                            element = self.page.wait_for_selector(selector, timeout=400)
                         
                         if element:
                             try:
@@ -1928,21 +1983,18 @@ class XianyuSliderStealth:
             # 🎨 检测是否为刮刮乐类型
             is_scratch = self.is_scratch_captcha()
             
-            # 🔑 关键优化1：使用JavaScript获取更精确的尺寸（避免DPI缩放影响）
+            # 在滑块所在 frame 内计算距离，避免主文档 querySelector 找不到 iframe 里的元素
             try:
-                precise_distance = self.page.evaluate("""
-                    () => {
-                        const button = document.querySelector('#nc_1_n1z') || document.querySelector('.nc_iconfont');
-                        const track = document.querySelector('#nc_1_n1t') || document.querySelector('.nc_scale');
-                        if (button && track) {
-                            const buttonRect = button.getBoundingClientRect();
-                            const trackRect = track.getBoundingClientRect();
-                            // 计算实际可滑动距离（考虑padding和边距）
-                            return trackRect.width - buttonRect.width;
-                        }
-                        return null;
-                    }
-                """)
+                precise_distance = slider_button.evaluate(
+                    """(button) => {
+                        const doc = button.ownerDocument;
+                        const track = doc.querySelector('#nc_1_n1t') || doc.querySelector('.nc_scale');
+                        if (!track) return null;
+                        const buttonRect = button.getBoundingClientRect();
+                        const trackRect = track.getBoundingClientRect();
+                        return trackRect.width - buttonRect.width;
+                    }"""
+                )
                 
                 if precise_distance and precise_distance > 0:
                     logger.info(f"【{self.pure_user_id}】使用JavaScript精确计算滑动距离: {precise_distance:.2f}px")
@@ -2159,9 +2211,7 @@ class XianyuSliderStealth:
                     found_failure = True
                     break
             
-            if found_failure:
-                logger.info(f"【{self.pure_user_id}】检测到验证失败关键词，验证失败")
-                return True
+            # 关键词命中后仍要继续找重试按钮，调用方需要 (bool, element)
             
             # 检查各种可能的验证失败提示元素
             failure_selectors = [
@@ -2181,26 +2231,42 @@ class XianyuSliderStealth:
             ]
             
             retry_button = None
-            for selector in failure_selectors:
-                try:
-                    element = self.page.query_selector(selector)
-                    if element and element.is_visible():
-                        # 获取元素文本内容
-                        element_text = ""
-                        try:
-                            element_text = element.text_content()
-                        except:
-                            pass
-                        
-                        logger.info(f"【{self.pure_user_id}】找到验证失败提示: {selector}, 文本: {element_text}")
-                        retry_button = element
-                        break
-                except:
+            frames_to_check = []
+            if hasattr(self, '_detected_slider_frame') and self._detected_slider_frame is not None:
+                frames_to_check.append(self._detected_slider_frame)
+            frames_to_check.append(self.page)
+            frames_to_check.extend(self.page.frames)
+
+            seen_frames = set()
+            for frame in frames_to_check:
+                frame_id = id(frame)
+                if frame_id in seen_frames:
                     continue
+                seen_frames.add(frame_id)
+                for selector in failure_selectors:
+                    try:
+                        element = frame.query_selector(selector)
+                        if element and element.is_visible():
+                            element_text = ""
+                            try:
+                                element_text = element.text_content() or ""
+                            except Exception:
+                                pass
+                            is_retry_text = any(k in element_text for k in ("验证失败", "点击框体重试", "请重试"))
+                            is_explicit = selector.startswith("text=") or selector == ".nc-lang-cnt"
+                            if not (is_explicit or is_retry_text or found_failure):
+                                continue
+                            logger.info(f"【{self.pure_user_id}】找到验证失败提示: {selector}, 文本: {element_text}")
+                            retry_button = element
+                            break
+                    except Exception:
+                        continue
+                if retry_button:
+                    break
             
-            if retry_button:
-                logger.info(f"【{self.pure_user_id}】检测到验证失败提示元素，验证失败")
-                return True, retry_button  # 返回找到的重试按钮元素
+            if retry_button or found_failure:
+                logger.info(f"【{self.pure_user_id}】检测到验证失败，验证失败")
+                return True, retry_button
             else:
                 logger.info(f"【{self.pure_user_id}】未找到验证失败提示，可能验证成功了")
                 return False, None
@@ -2225,11 +2291,13 @@ class XianyuSliderStealth:
             if retry_element is None:
                 # 定义重试按钮选择器（按优先级排序）
                 retry_selectors = [
-                    "text=验证失败，点击框体重试",  # 完整文本匹配
-                    "text=点击框体重试",  # 部分文本匹配
-                    ".nc-lang-cnt",  # 通用提示容器
-                    "[class*='retry']",  # 包含retry的类名
-                    ".captcha-tips",  # 验证码提示
+                    "text=验证失败，点击框体重试",
+                    "text=点击框体重试",
+                    ".nc-lang-cnt",
+                    "#nc_1_n1t",
+                    ".nc-container",
+                    "[class*='retry']",
+                    ".captcha-tips",
                 ]
 
                 for selector in retry_selectors:
@@ -2243,8 +2311,12 @@ class XianyuSliderStealth:
                                     element_text = element.text_content() or ""
                                     logger.info(f"【{self.pure_user_id}】找到重试元素: {selector}, 文本: {element_text}")
 
-                                    # 检查是否包含"重试"相关文本
-                                    if "重试" in element_text or "retry" in element_text.lower():
+                                    if (
+                                        "重试" in element_text
+                                        or "retry" in element_text.lower()
+                                        or "验证失败" in element_text
+                                        or selector in ("#nc_1_n1t", ".nc-container", ".nc-lang-cnt")
+                                    ):
                                         retry_element = element
                                         break
                             except:
@@ -2255,31 +2327,44 @@ class XianyuSliderStealth:
                     except:
                         continue
 
-            # 如果找到了重试元素，点击它
             if retry_element:
+                clicked = False
                 try:
-                    # 使用JavaScript点击（更可靠）
-                    retry_element.evaluate("el => el.click()")
-                    logger.success(f"【{self.pure_user_id}】✅ 已点击重试按钮（JavaScript点击）")
+                    box = retry_element.bounding_box()
+                    if box:
+                        self.page.mouse.click(
+                            box["x"] + box["width"] / 2,
+                            box["y"] + box["height"] / 2,
+                        )
+                        clicked = True
+                        logger.success(f"【{self.pure_user_id}】✅ 已用鼠标点击重试区域")
+                except Exception as mouse_error:
+                    logger.warning(f"【{self.pure_user_id}】鼠标点击重试失败: {mouse_error}")
 
-                    # 等待滑块重置
-                    time.sleep(random.uniform(0.5, 1.0))
-                    return True
-
-                except Exception as js_error:
-                    logger.warning(f"【{self.pure_user_id}】JavaScript点击失败: {js_error}，尝试鼠标点击")
-
+                if not clicked:
                     try:
-                        # 备用方案：使用鼠标点击
-                        retry_element.click()
-                        logger.success(f"【{self.pure_user_id}】✅ 已点击重试按钮（鼠标点击）")
+                        retry_element.click(timeout=2000)
+                        clicked = True
+                        logger.success(f"【{self.pure_user_id}】✅ 已点击重试按钮")
+                    except Exception as click_error:
+                        logger.warning(f"【{self.pure_user_id}】元素点击失败: {click_error}，改用 JS")
+                        try:
+                            retry_element.evaluate("el => el.click()")
+                            clicked = True
+                            logger.success(f"【{self.pure_user_id}】✅ 已用 JS 点击重试")
+                        except Exception as js_error:
+                            logger.error(f"【{self.pure_user_id}】JS 点击也失败: {js_error}")
+                            return False
 
-                        # 等待滑块重置
-                        time.sleep(random.uniform(0.5, 1.0))
-                        return True
-                    except Exception as mouse_error:
-                        logger.error(f"【{self.pure_user_id}】鼠标点击也失败: {mouse_error}")
-                        return False
+                if hasattr(self, '_detected_slider_frame'):
+                    delattr(self, '_detected_slider_frame')
+                time.sleep(random.uniform(0.3, 0.6))
+                _, button, _ = self._wait_for_nc_slider(timeout=8.0)
+                if button:
+                    logger.success(f"【{self.pure_user_id}】✅ 重试后滑块按钮已恢复")
+                    return True
+                logger.warning(f"【{self.pure_user_id}】点击重试后滑块按钮仍未出现")
+                return clicked
             else:
                 logger.warning(f"【{self.pure_user_id}】未找到重试按钮，无法点击")
                 return False
@@ -2311,6 +2396,31 @@ class XianyuSliderStealth:
             logger.error(f"【{self.pure_user_id}】分析失败原因时出错: {e}")
             return {}
     
+    def _browser_session_alive(self):
+        """检查页面和浏览器连接，避免在失效会话上继续重试。"""
+        try:
+            return bool(self.browser and self.browser.is_connected()
+                        and self.page and not self.page.is_closed())
+        except Exception:
+            return False
+
+    def _recover_browser_session(self, url):
+        """重建失效会话，保留当前实例占用的并发槽位。"""
+        if not url or url == 'about:blank':
+            logger.error(f"【{self.pure_user_id}】缺少验证页面地址，无法恢复会话")
+            return False
+        try:
+            self._cleanup_on_init_failure()
+            self.page = self.context = self.browser = self.playwright = None
+            if hasattr(self, '_detected_slider_frame'):
+                delattr(self, '_detected_slider_frame')
+            self.init_browser()
+            self.page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            return self._browser_session_alive()
+        except Exception as error:
+            logger.error(f"【{self.pure_user_id}】恢复浏览器会话失败: {error}")
+            return False
+
     def solve_slider(self, max_retries: int = 3, fast_mode: bool = False):
         """处理滑块验证（极速模式）
         
@@ -2319,28 +2429,44 @@ class XianyuSliderStealth:
             fast_mode: 快速查找模式（当已确认滑块存在时使用，减少等待时间）
         """
         failure_records = []
-        current_strategy = 'ultra_fast'  # 极速策略
+        current_strategy = 'human_random'
+        recovery_used = False
+        try:
+            verification_url = self.page.url
+        except Exception:
+            verification_url = None
         
         for attempt in range(1, max_retries + 1):
             try:
                 logger.info(f"【{self.pure_user_id}】开始处理滑块验证... (第{attempt}/{max_retries}次尝试)")
+                if not self._browser_session_alive():
+                    if recovery_used:
+                        logger.error(f"【{self.pure_user_id}】恢复后连接再次断开，停止本轮验证")
+                        return False
+                    recovery_used = True
+                    logger.warning(f"【{self.pure_user_id}】浏览器连接已断开，重建会话后重试")
+                    if not self._recover_browser_session(verification_url):
+                        return False
+                    fast_mode = False
                 
                 # 如果不是第一次尝试，短暂等待后重试
                 if attempt > 1:
-                    retry_delay = random.uniform(0.5, 1.0)  # 减少等待时间
-                    logger.info(f"【{self.pure_user_id}】等待{retry_delay:.2f}秒后重试...")
+                    retry_delay = random.uniform(0.2, 0.6)
+                    logger.info(f"【{self.pure_user_id}】等待{retry_delay:.2f}秒后重新查找滑块...")
                     time.sleep(retry_delay)
-                    
-                    # 不刷新页面，直接在原来的frame中重试
-                    # 保留frame引用，让重试时可以直接使用原来的frame查找滑块
-                    if hasattr(self, '_detected_slider_frame'):
-                        frame_info = "主页面" if self._detected_slider_frame is None else "Frame"
-                        logger.info(f"【{self.pure_user_id}】保留frame引用，将在原来的{frame_info}中重试")
-                    else:
-                        logger.info(f"【{self.pure_user_id}】未找到frame引用，将重新检测滑块位置")
                 
                 # 1. 查找滑块元素（使用快速模式）
                 slider_container, slider_button, slider_track = self.find_slider_elements(fast_mode=fast_mode)
+                if not all([slider_container, slider_button, slider_track]) and attempt > 1:
+                    logger.warning(f"【{self.pure_user_id}】重试后仍未找到滑块，刷新验证页再找一次")
+                    try:
+                        self.page.reload(wait_until="domcontentloaded", timeout=20000)
+                        time.sleep(random.uniform(0.8, 1.5))
+                    except Exception as reload_err:
+                        logger.warning(f"【{self.pure_user_id}】刷新验证页失败: {reload_err}")
+                    if hasattr(self, '_detected_slider_frame'):
+                        delattr(self, '_detected_slider_frame')
+                    slider_container, slider_button, slider_track = self.find_slider_elements(fast_mode=False)
                 if not all([slider_container, slider_button, slider_track]):
                     logger.error(f"【{self.pure_user_id}】滑块元素查找失败")
                     continue
@@ -2396,19 +2522,13 @@ class XianyuSliderStealth:
                         failure_info = self._analyze_failure(attempt, slide_distance, self.current_trajectory_data)
                         failure_records.append(failure_info)
 
-                    # 🔑 如果不是最后一次尝试，点击重试按钮后继续
                     if attempt < max_retries:
-                        # 点击重试按钮重置滑块
-                        if retry_element is not None:
-                            logger.info(f"【{self.pure_user_id}】检测到重试按钮，点击重置滑块...")
-                            if self.click_retry_button(retry_element):
-                                logger.success(f"【{self.pure_user_id}】✅ 已点击重试按钮，滑块已重置")
-                                # 等待滑块重新加载
-                                time.sleep(random.uniform(0.3, 0.6))
-                            else:
-                                logger.warning(f"【{self.pure_user_id}】点击重试按钮失败，继续尝试")
+                        logger.info(f"【{self.pure_user_id}】尝试点击重试以重置滑块...")
+                        reset_ok = self.click_retry_button(retry_element)
+                        if reset_ok:
+                            logger.success(f"【{self.pure_user_id}】✅ 已点击重试并等待滑块恢复")
                         else:
-                            logger.info(f"【{self.pure_user_id}】未检测到重试按钮，直接继续下一次尝试")
+                            logger.warning(f"【{self.pure_user_id}】点击重试后滑块未恢复，将在下一轮刷新页面")
                         continue
                 
             except Exception as e:
@@ -4341,9 +4461,37 @@ class XianyuSliderStealth:
             page_content = self.page.content()
             if any(keyword in page_content for keyword in ["验证码", "captcha", "滑块", "slider"]):
                 logger.info(f"【{self.pure_user_id}】页面内容包含验证码相关关键词")
-                
-                # 处理滑块验证
-                success = self.solve_slider()
+
+                if self.headless:
+                    success = self.solve_slider()
+                else:
+                    logger.info(
+                        f"【{self.pure_user_id}】有界面模式：请在弹出的浏览器窗口里亲手拖滑块，最多等待 120 秒"
+                    )
+                    success = False
+                    for waited in range(120):
+                        try:
+                            title = self.page.title() or ""
+                            url_now = self.page.url or ""
+                            still_captcha = (
+                                "验证码拦截" in title
+                                or "action=captcha" in url_now
+                                or "punish" in url_now
+                            )
+                            if not still_captcha:
+                                logger.info(
+                                    f"【{self.pure_user_id}】验证码页面已离开 title={title!r}，视为手工通过"
+                                )
+                                success = True
+                                break
+                        except Exception as wait_err:
+                            logger.warning(f"【{self.pure_user_id}】等待手工滑块时出错: {wait_err}")
+                            break
+                        if waited in (0, 15, 30, 60, 90):
+                            logger.info(f"【{self.pure_user_id}】等待手工滑块中… {waited}s")
+                        time.sleep(1)
+                    if not success:
+                        logger.warning(f"【{self.pure_user_id}】120 秒内未检测到手工通过，滑块失败")
                 
                 if success:
                     logger.info(f"【{self.pure_user_id}】滑块验证成功")
