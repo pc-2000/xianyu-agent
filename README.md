@@ -1,11 +1,11 @@
 # 🐟 闲鱼 × OpenClaw 频道插件
 
-[![GitHub](https://img.shields.io/badge/GitHub-laozuzhen%2Fxianyu--openclaw--channel-blue?logo=github)](https://github.com/laozuzhen/xianyu-openclaw-channel)
+[![GitHub](https://img.shields.io/badge/GitHub-pc--2000%2Fxianyu--agent-blue?logo=github)](https://github.com/pc-2000/xianyu-agent)
 [![Python](https://img.shields.io/badge/Python-3.11+-green?logo=python)](https://www.python.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-16+-green?logo=node.js)](https://nodejs.org/)
-[![OpenClaw](https://img.shields.io/badge/OpenClaw-Channel%20Plugin-purple)](https://github.com/nicepkg/openclaw)
+[![OpenClaw](https://img.shields.io/badge/OpenClaw-Channel%20Plugin-purple)](https://github.com/pc-2000/xianyu-agent)
 
-> 将闲鱼二手交易平台的消息接入 [OpenClaw](https://github.com/nicepkg/openclaw) AI Agent，实现智能客服、自动回复、自动发货、商品发布等功能。
+> 将闲鱼二手交易平台的消息接入 OpenClaw AI Agent，实现智能客服、自动回复、自动发货、商品发布等功能。
 
 ## ✨ 特性
 
@@ -67,8 +67,8 @@ npm test
 ### 1. 克隆仓库
 
 ```bash
-git clone https://github.com/laozuzhen/xianyu-openclaw-channel.git
-cd xianyu-openclaw-channel
+git clone https://github.com/pc-2000/xianyu-agent.git
+cd xianyu-agent
 ```
 
 ### 2. 一键安装
@@ -243,7 +243,7 @@ Agent：好的，请提供商品信息...
 ## 📁 项目结构
 
 ```
-xianyu-openclaw-channel/
+xianyu-agent/
 ├── openclaw-plugin/           # OpenClaw 频道插件 (TypeScript)
 │   ├── index.ts               # 插件入口，注册 channel + service + tools
 │   └── src/
@@ -323,11 +323,14 @@ openclaw gateway restart
 - ✨ 添加商品搜索功能
 - ✨ 添加后端日志 API
 
-## 📜 致谢
+## 📬 联系方式
 
-- [xianyu-auto-reply](https://github.com/HJYHJYHJY/xianyu-auto-reply) — 闲鱼自动回复核心
-- [OpenClaw](https://github.com/nicepkg/openclaw) — AI Agent 框架
-- [openclaw-channel-dingtalk](https://github.com/soimy/openclaw-channel-dingtalk) — 插件架构参考
+- GitHub 仓库：https://github.com/pc-2000/xianyu-agent
+- 作者主页：https://github.com/pc-2000
+- Issues：https://github.com/pc-2000/xianyu-agent/issues
+- QQ：281550752
+- 邮箱：281550752@qq.com
+- 微信：pc2000315
 
 ## ⚖️ 声明
 
